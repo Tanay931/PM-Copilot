@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+/* ── BNGAI Brand Tokens ──────────────────────────────────────────────────── */
+:root {
+  --pine:        #004D38;
+  --pine-dark:   #003829;
+  --pine-light:  #005a42;
+  --pine-50:     #f0f9f6;
+  --pine-100:    #cce8df;
+  --mint:        #A6FFA3;
+  --mint-dark:   #8ef089;
+  --space:       #05001B;
+  --offwhite:    #FCFDFD;
+  --sky:         #C6ECFF;
+  --sky-dark:    #a8dffc;
+
+  /* Layout */
+  --background:  #FCFDFD;
+  --foreground:  #05001B;
+
+  /* Sidebar */
+  --sidebar-bg:      #004D38;
+  --sidebar-border:  #003829;
+  --sidebar-text:    rgba(252,253,253,0.55);
+  --sidebar-text-active: #FCFDFD;
+  --sidebar-hover:   #005a42;
+  --sidebar-active:  #003829;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-inter);
+
+  /* Expose brand colors as Tailwind utilities */
+  --color-pine:       var(--pine);
+  --color-pine-dark:  var(--pine-dark);
+  --color-pine-light: var(--pine-light);
+  --color-pine-50:    var(--pine-50);
+  --color-pine-100:   var(--pine-100);
+  --color-mint:       var(--mint);
+  --color-mint-dark:  var(--mint-dark);
+  --color-space:      var(--space);
+  --color-offwhite:   var(--offwhite);
+  --color-sky:        var(--sky);
+  --color-sky-dark:   var(--sky-dark);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
