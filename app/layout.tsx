@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import Sidebar from "@/components/Sidebar";
-import Providers from "@/components/Providers";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -11,7 +9,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "PM Copilot — BNGAI",
+  title: "PM Copilot",
   description: "A day-to-day assistant for Product Managers to automate PRD and prototyping tasks.",
 };
 
@@ -22,13 +20,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
-      <body className="h-full flex bg-offwhite">
-        <Providers>
-          <Sidebar />
-          <main className="flex-1 ml-60 min-h-screen overflow-y-auto">
-            {children}
-          </main>
-        </Providers>
+      <body className="h-full" style={{ background: "var(--offwhite)" }}>
+        {children}
       </body>
     </html>
   );
