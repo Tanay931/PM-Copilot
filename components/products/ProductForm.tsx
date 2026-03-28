@@ -664,7 +664,7 @@ export default function ProductForm({ product }: ProductFormProps) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: name.trim(), short_description: shortDescription.trim(), context: context.trim() }),
         });
-        if (!res.ok) throw new Error("Failed to create product.");
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error ?? "Failed to create product."); }
         const { data } = await res.json();
         productId = data.id;
       }

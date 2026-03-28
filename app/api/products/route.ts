@@ -41,6 +41,11 @@ export async function POST(request: NextRequest) {
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
+  // Ensure public users row exists (FK requirement) — idempotent
+  await supabase
+    .from('users')
+    .upsert({ id: user.id, email: user.email! }, { onConflict: 'id', ignoreDuplicates: true })
+
   const body = await request.json()
   const parsed = CreateProductSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })

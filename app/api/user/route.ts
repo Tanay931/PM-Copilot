@@ -78,8 +78,10 @@ export async function PUT(request: NextRequest) {
 
   const { data, error } = await supabase
     .from('users')
-    .update({ ...parsed.data, updated_at: new Date().toISOString() })
-    .eq('id', user.id)
+    .upsert(
+      { id: user.id, email: user.email!, ...parsed.data, updated_at: new Date().toISOString() },
+      { onConflict: 'id' }
+    )
     .select()
     .single()
 

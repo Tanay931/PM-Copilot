@@ -22,7 +22,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         .eq("id", user.id)
         .single();
 
-      if (profile && !profile.onboarding_complete) {
+      if (!profile || !profile.onboarding_complete) {
         router.replace("/onboarding");
       }
     }

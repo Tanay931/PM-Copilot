@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
-import { useProducts } from "@/lib/products-store";
-import type { Product, Persona, KnowledgeBaseItem } from "@/lib/types";
+import { useRouter } from "next/navigation";
+import type { ProductListItem, DBProductWithRelations, DBPersona } from "@/lib/types";
 import PRDResult from "@/components/PRDResult";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ function ProductSelectCard({
   product,
   onSelect,
 }: {
-  product: Product;
+  product: ProductListItem;
   onSelect: () => void;
 }) {
   return (
@@ -75,9 +75,9 @@ function ProductSelectCard({
           <ArrowRight />
         </span>
       </div>
-      {product.description ? (
+      {product.short_description ? (
         <p className="text-sm leading-relaxed mb-3 line-clamp-2" style={{ color: "#4a5568" }}>
-          {product.description}
+          {product.short_description}
         </p>
       ) : (
         <p className="text-sm mb-3 italic" style={{ color: "#9ca3af" }}>No description</p>
@@ -85,23 +85,23 @@ function ProductSelectCard({
       <div className="flex items-center gap-3">
         <span
           className="flex items-center gap-1 text-xs font-medium"
-          style={{ color: product.personas.length > 0 ? "var(--pine)" : "#9ca3af" }}
+          style={{ color: product.persona_count > 0 ? "var(--pine)" : "#9ca3af" }}
         >
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
             <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
           </svg>
-          {product.personas.length} persona{product.personas.length !== 1 ? "s" : ""}
+          {product.persona_count} persona{product.persona_count !== 1 ? "s" : ""}
         </span>
         <span
           className="flex items-center gap-1 text-xs font-medium"
-          style={{ color: product.knowledgeBase.length > 0 ? "var(--pine)" : "#9ca3af" }}
+          style={{ color: product.kb_item_count > 0 ? "var(--pine)" : "#9ca3af" }}
         >
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
           </svg>
-          {product.knowledgeBase.length} KB item{product.knowledgeBase.length !== 1 ? "s" : ""}
+          {product.kb_item_count} KB item{product.kb_item_count !== 1 ? "s" : ""}
         </span>
       </div>
     </button>
@@ -113,7 +113,7 @@ function ProductSelectionView({
   onSelect,
   onSkip,
 }: {
-  products: Product[];
+  products: ProductListItem[];
   onSelect: (id: string) => void;
   onSkip: () => void;
 }) {
@@ -186,7 +186,7 @@ function ProductBanner({
   product,
   onChangeProduct,
 }: {
-  product: Product;
+  product: DBProductWithRelations;
   onChangeProduct: () => void;
 }) {
   return (
@@ -202,15 +202,15 @@ function ProductBanner({
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-space leading-none">{product.name}</p>
-        {product.description && (
-          <p className="text-xs mt-0.5 truncate" style={{ color: "#4a5568" }}>{product.description}</p>
+        {product.short_description && (
+          <p className="text-xs mt-0.5 truncate" style={{ color: "#4a5568" }}>{product.short_description}</p>
         )}
       </div>
       <div className="flex items-center gap-3 flex-shrink-0">
         <div className="flex items-center gap-2.5 text-[11px]" style={{ color: "var(--pine)" }}>
           <span>{product.personas.length} persona{product.personas.length !== 1 ? "s" : ""}</span>
           <span className="text-pine-100">·</span>
-          <span>{product.knowledgeBase.length} KB item{product.knowledgeBase.length !== 1 ? "s" : ""}</span>
+          <span>{product.knowledge_base_items.length} KB item{product.knowledge_base_items.length !== 1 ? "s" : ""}</span>
         </div>
         <button
           onClick={onChangeProduct}
@@ -231,7 +231,7 @@ function PersonaChips({
   selectedIds,
   onToggle,
 }: {
-  personas: Persona[];
+  personas: DBPersona[];
   selectedIds: string[];
   onToggle: (id: string) => void;
 }) {
@@ -275,7 +275,7 @@ function PersonaChips({
                 className="text-[10px] font-normal"
                 style={{ opacity: 0.65 }}
               >
-                · {persona.techSavviness}
+                · {persona.tech_savviness}
               </span>
             </button>
           );
@@ -539,7 +539,7 @@ function SummaryPanel({
 }: {
   form: FormState;
   step: number;
-  selectedProduct: Product | undefined;
+  selectedProduct: DBProductWithRelations | undefined;
   selectedPersonaIds: string[];
 }) {
   const wordCount = form.context.trim() ? form.context.trim().split(/\s+/).length : 0;
@@ -587,11 +587,19 @@ function SummaryPanel({
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 
 export default function PRDForm() {
-  const { products, getProduct } = useProducts();
+  const router = useRouter();
+  const [products, setProducts] = useState<ProductListItem[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<DBProductWithRelations | undefined>(undefined);
 
   const [view, setView] = useState<View>("product-selection");
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [selectedPersonaIds, setSelectedPersonaIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetch("/api/products")
+      .then((r) => r.json())
+      .then(({ data }) => setProducts(data ?? []));
+  }, []);
   const [step, setStep] = useState(1);
   const [streamedText, setStreamedText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -604,26 +612,27 @@ export default function PRDForm() {
     targetRelease: "",
   });
 
-  const selectedProduct = selectedProductId ? getProduct(selectedProductId) : undefined;
-
-  function handleSelectProduct(id: string) {
-    const product = getProduct(id);
+  async function handleSelectProduct(id: string) {
     setSelectedProductId(id);
     setSelectedPersonaIds([]);
-    // Pre-fill product name in settings step
-    if (product) {
-      setForm((prev) => ({ ...prev, productName: product.name }));
-    }
     setView("form");
+    const res = await fetch(`/api/products/${id}`);
+    if (res.ok) {
+      const { data } = await res.json();
+      setSelectedProduct(data);
+      setForm((prev) => ({ ...prev, productName: data.name }));
+    }
   }
 
   function handleSkipProduct() {
     setSelectedProductId(null);
+    setSelectedProduct(undefined);
     setSelectedPersonaIds([]);
     setView("form");
   }
 
   function handleChangeProduct() {
+    setSelectedProduct(undefined);
     setView("product-selection");
   }
 
@@ -663,8 +672,8 @@ export default function PRDForm() {
 
       // Attach product context for API (wired up later)
       if (selectedProduct) {
-        formData.append("productContext", selectedProduct.context);
-        formData.append("productDescription", selectedProduct.description);
+        formData.append("productContext", selectedProduct.context ?? "");
+        formData.append("productDescription", selectedProduct.short_description ?? "");
       }
 
       // Attach selected persona details
@@ -676,10 +685,10 @@ export default function PRDForm() {
       }
 
       // Attach KB metadata (full content retrieval comes later)
-      if (selectedProduct && selectedProduct.knowledgeBase.length > 0) {
+      if (selectedProduct && selectedProduct.knowledge_base_items.length > 0) {
         formData.append(
           "knowledgeBaseItems",
-          JSON.stringify(selectedProduct.knowledgeBase.map((i) => ({ name: i.name, type: i.type, url: i.url })))
+          JSON.stringify(selectedProduct.knowledge_base_items.map((i) => ({ name: i.filename, type: i.source_type, url: i.url })))
         );
       }
 
@@ -704,7 +713,27 @@ export default function PRDForm() {
         setStreamedText(full);
       }
       setStreamedText(full);
-      setView("result");
+
+      // Save PRD to database
+      const title = [form.featureName, form.productName].filter(Boolean).join(" — ") || "Untitled PRD";
+      const saveRes = await fetch("/api/prds", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          content_markdown: full,
+          product_id: selectedProductId ?? null,
+          status: "complete",
+        }),
+      });
+
+      if (saveRes.ok) {
+        const { data: savedPrd } = await saveRes.json();
+        router.push(`/prds/${savedPrd.id}`);
+      } else {
+        // Fallback: show result inline if save fails
+        setView("result");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
       setView("form");

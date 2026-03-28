@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { extractFileText } from "@/lib/extract-text";
+import { createClient } from "@/lib/supabase/server";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -85,6 +86,14 @@ export async function POST(request: Request) {
     );
   }
 
+  const supabase = await createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) {
+    return new Response(JSON.stringify({ error: "Unauthorised" }), {
+      status: 401, headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const formData = await request.formData();
   const context = formData.get("context") as string;
   const productName = formData.get("productName") as string;
@@ -100,11 +109,11 @@ export async function POST(request: Request) {
 
   interface PersonaData {
     name: string;
-    roleDescription: string;
-    techSavviness: string;
-    behaviorsAndNeeds: string;
-    designImplications: string;
-    relevantFeatures: string;
+    role_description: string;
+    tech_savviness: string;
+    behaviours: string | null;
+    design_implications: string | null;
+    relevant_features: string | null;
   }
   interface KBItemData { name: string; type: string; url?: string }
 
@@ -147,11 +156,11 @@ export async function POST(request: Request) {
     promptText += `## Target Personas\n\n`;
     for (const p of personas) {
       promptText += `### ${p.name}\n`;
-      if (p.roleDescription) promptText += `**Role:** ${p.roleDescription}\n`;
-      if (p.techSavviness) promptText += `**Tech Savviness:** ${p.techSavviness}\n`;
-      if (p.behaviorsAndNeeds) promptText += `**Behaviors & Needs:** ${p.behaviorsAndNeeds}\n`;
-      if (p.designImplications) promptText += `**Design Implications:** ${p.designImplications}\n`;
-      if (p.relevantFeatures) promptText += `**Relevant Features:** ${p.relevantFeatures}\n`;
+      if (p.role_description) promptText += `**Role:** ${p.role_description}\n`;
+      if (p.tech_savviness) promptText += `**Tech Savviness:** ${p.tech_savviness}\n`;
+      if (p.behaviours) promptText += `**Behaviours & Needs:** ${p.behaviours}\n`;
+      if (p.design_implications) promptText += `**Design Implications:** ${p.design_implications}\n`;
+      if (p.relevant_features) promptText += `**Relevant Features:** ${p.relevant_features}\n`;
       promptText += `\n`;
     }
   }
@@ -200,7 +209,7 @@ export async function POST(request: Request) {
 
   // ── Stream response from Claude ───────────────────────────────────────────
   const stream = anthropic.messages.stream({
-    model: "claude-sonnet-4-5",
+    model: process.env.CLAUDE_MODEL ?? "claude-sonnet-4-6",
     max_tokens: 8000,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content }],
