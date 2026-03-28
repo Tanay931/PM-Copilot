@@ -1,17 +1,29 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useProducts } from "@/lib/products-store";
+import type { ProductListItem } from "@/lib/types";
 import ProductCard from "@/components/products/ProductCard";
 
 export default function ProductsPage() {
-  const { products, ready, deleteProduct } = useProducts();
+  const [products, setProducts] = useState<ProductListItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  function handleDelete(id: string) {
+  async function fetchProducts() {
+    const res = await fetch("/api/products");
+    if (!res.ok) return;
+    const { data } = await res.json();
+    setProducts(data ?? []);
+    setLoading(false);
+  }
+
+  useEffect(() => { fetchProducts(); }, []);
+
+  async function handleDelete(id: string) {
     const product = products.find((p) => p.id === id);
-    if (confirm(`Delete "${product?.name ?? "this product"}"? This cannot be undone.`)) {
-      deleteProduct(id);
-    }
+    if (!confirm(`Delete "${product?.name ?? "this product"}"? This cannot be undone.`)) return;
+    await fetch(`/api/products/${id}`, { method: "DELETE" });
+    setProducts((prev) => prev.filter((p) => p.id !== id));
   }
 
   return (
@@ -30,55 +42,43 @@ export default function ProductsPage() {
         </div>
         <Link
           href="/products/new"
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-offwhite transition-colors bg-pine hover:bg-pine-dark flex-shrink-0"
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-offwhite transition-colors flex-shrink-0"
+          style={{ background: "var(--pine)" }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
+            <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
           </svg>
           Add Product
         </Link>
       </div>
 
       {/* Content */}
-      {!ready ? (
-        // Loading skeleton
+      {loading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {[1, 2].map((i) => (
-            <div
-              key={i}
-              className="h-40 rounded-xl border animate-pulse"
-              style={{ borderColor: "var(--pine-100)", background: "var(--pine-50)" }}
-            />
+            <div key={i} className="h-40 rounded-xl border animate-pulse"
+              style={{ borderColor: "var(--pine-100)", background: "var(--pine-50)" }} />
           ))}
         </div>
       ) : products.length === 0 ? (
-        // Empty state
-        <div
-          className="text-center py-20 rounded-2xl border-2 border-dashed"
-          style={{ borderColor: "var(--pine-100)" }}
-        >
-          <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
-            style={{ background: "var(--pine-50)" }}
-          >
+        <div className="text-center py-20 rounded-2xl border-2 border-dashed" style={{ borderColor: "var(--pine-100)" }}>
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4" style={{ background: "var(--pine-50)" }}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--pine)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-              <line x1="8" y1="21" x2="16" y2="21" />
-              <line x1="12" y1="17" x2="12" y2="21" />
+              <line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
             </svg>
           </div>
           <h2 className="text-lg font-semibold text-space mb-2">No products yet</h2>
           <p className="text-sm mb-6 max-w-xs mx-auto" style={{ color: "#9ca3af" }}>
-            Add your first product to start building a context library for AI-generated PRDs and documents.
+            Add your first product to start building a context library for AI-generated PRDs.
           </p>
           <Link
             href="/products/new"
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-offwhite transition-colors bg-pine hover:bg-pine-dark"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-offwhite"
+            style={{ background: "var(--pine)" }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
+              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
             </svg>
             Add your first product
           </Link>

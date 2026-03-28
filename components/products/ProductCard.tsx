@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import type { Product } from "@/lib/types";
+import type { ProductListItem } from "@/lib/types";
 
 interface ProductCardProps {
-  product: Product;
+  product: ProductListItem;
   onDelete: (id: string) => void;
 }
 
@@ -29,9 +29,7 @@ function BookIcon() {
 }
 
 export default function ProductCard({ product, onDelete }: ProductCardProps) {
-  const personaCount = product.personas.length;
-  const kbCount = product.knowledgeBase.length;
-  const updatedDate = new Date(product.updatedAt).toLocaleDateString("en-US", {
+  const updatedDate = new Date(product.updated_at).toLocaleDateString("en-GB", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -48,7 +46,7 @@ export default function ProductCard({ product, onDelete }: ProductCardProps) {
           <h3 className="font-semibold text-space text-[15px] leading-snug">{product.name}</h3>
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
             <Link
-              href={`/products/${product.id}`}
+              href={`/products/${product.id}/edit`}
               className="p-1.5 rounded-md transition-colors hover:bg-pine-50"
               style={{ color: "#6b7280" }}
               title="Edit product"
@@ -75,34 +73,29 @@ export default function ProductCard({ product, onDelete }: ProductCardProps) {
         </div>
 
         {/* Description */}
-        {product.description ? (
-          <p
-            className="text-sm leading-relaxed mb-4 line-clamp-2"
-            style={{ color: "#4a5568" }}
-          >
-            {product.description}
+        {product.short_description ? (
+          <p className="text-sm leading-relaxed mb-4 line-clamp-2" style={{ color: "#4a5568" }}>
+            {product.short_description}
           </p>
         ) : (
-          <p className="text-sm mb-4 italic" style={{ color: "#9ca3af" }}>
-            No description
-          </p>
+          <p className="text-sm mb-4 italic" style={{ color: "#9ca3af" }}>No description</p>
         )}
 
         {/* Stats */}
         <div className="flex items-center gap-4">
           <span
             className="flex items-center gap-1.5 text-xs font-medium"
-            style={{ color: personaCount > 0 ? "var(--pine)" : "#9ca3af" }}
+            style={{ color: product.persona_count > 0 ? "var(--pine)" : "#9ca3af" }}
           >
             <UsersIcon />
-            {personaCount} persona{personaCount !== 1 ? "s" : ""}
+            {product.persona_count} persona{product.persona_count !== 1 ? "s" : ""}
           </span>
           <span
             className="flex items-center gap-1.5 text-xs font-medium"
-            style={{ color: kbCount > 0 ? "var(--pine)" : "#9ca3af" }}
+            style={{ color: product.kb_item_count > 0 ? "var(--pine)" : "#9ca3af" }}
           >
             <BookIcon />
-            {kbCount} KB item{kbCount !== 1 ? "s" : ""}
+            {product.kb_item_count} KB item{product.kb_item_count !== 1 ? "s" : ""}
           </span>
           <span className="ml-auto text-[11px]" style={{ color: "#9ca3af" }}>
             Updated {updatedDate}

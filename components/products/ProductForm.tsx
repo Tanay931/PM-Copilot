@@ -3,14 +3,70 @@
 import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useProducts } from "@/lib/products-store";
-import type { Product, KnowledgeBaseItem, Persona, TechSavviness } from "@/lib/types";
+import type { DBProductWithRelations, DBKnowledgeBaseItem, DBPersona } from "@/lib/types";
 
-// ─── Shared styles ────────────────────────────────────────────────────────────
+// ─── Draft types (UI-only, not persisted directly) ────────────────────────────
+
+type TechLevel = "low" | "medium" | "high";
+
+interface KBDraft {
+  id: string;              // temp UUID for new, real UUID for existing
+  source_type: "upload" | "url";
+  display_name: string;    // filename or user-supplied title
+  url?: string;
+  file_size_bytes?: number;
+  file_type?: string;
+  created_at: string;
+  file?: File;             // only present for new uploads
+  isNew: boolean;
+  isDeleted: boolean;
+}
+
+interface PersonaDraft {
+  id: string;
+  name: string;
+  role_description: string;
+  tech_savviness: TechLevel;
+  behaviours: string;
+  design_implications: string;
+  relevant_features: string;
+  isNew: boolean;
+  isDeleted: boolean;
+  isDirty: boolean;
+}
+
+function dbKbToKBDraft(item: DBKnowledgeBaseItem): KBDraft {
+  return {
+    id: item.id,
+    source_type: item.source_type === "url" ? "url" : "upload",
+    display_name: item.filename ?? item.url ?? "",
+    url: item.url ?? undefined,
+    file_size_bytes: item.file_size_bytes ?? undefined,
+    created_at: item.created_at,
+    isNew: false,
+    isDeleted: false,
+  };
+}
+
+function dbPersonaToDraft(p: DBPersona): PersonaDraft {
+  return {
+    id: p.id,
+    name: p.name,
+    role_description: p.role_description,
+    tech_savviness: p.tech_savviness,
+    behaviours: p.behaviours ?? "",
+    design_implications: p.design_implications ?? "",
+    relevant_features: p.relevant_features ?? "",
+    isNew: false,
+    isDeleted: false,
+    isDirty: false,
+  };
+}
+
+// ─── Shared styles ─────────────────────────────────────────────────────────────
 
 const inputClass =
   "w-full px-4 py-2.5 rounded-lg border border-pine-100 text-sm text-space placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:border-transparent transition bg-white";
-
 const focusStyle = { "--tw-ring-color": "var(--pine)" } as React.CSSProperties;
 
 function Label({ children, required }: { children: React.ReactNode; required?: boolean }) {
@@ -26,7 +82,7 @@ function FieldHint({ children }: { children: React.ReactNode }) {
   return <p className="mt-1.5 text-xs" style={{ color: "#9ca3af" }}>{children}</p>;
 }
 
-// ─── Tab types ────────────────────────────────────────────────────────────────
+// ─── Tabs ─────────────────────────────────────────────────────────────────────
 
 type TabId = "overview" | "knowledge-base" | "personas";
 
@@ -38,8 +94,7 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
         <polyline points="14 2 14 8 20 8" />
-        <line x1="16" y1="13" x2="8" y2="13" />
-        <line x1="16" y1="17" x2="8" y2="17" />
+        <line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
       </svg>
     ),
   },
@@ -70,37 +125,25 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
 function OverviewTab({
-  name, description, context,
-  setName, setDescription, setContext,
+  name, shortDescription, context,
+  setName, setShortDescription, setContext,
 }: {
-  name: string; description: string; context: string;
+  name: string; shortDescription: string; context: string;
   setName: (v: string) => void;
-  setDescription: (v: string) => void;
+  setShortDescription: (v: string) => void;
   setContext: (v: string) => void;
 }) {
   return (
     <div className="space-y-6">
       <div>
         <Label required>Product name</Label>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Acme Field Manager"
-          className={inputClass}
-          style={focusStyle}
-        />
+        <input type="text" value={name} onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Acme Field Manager" className={inputClass} style={focusStyle} />
       </div>
       <div>
-        <Label>Short description</Label>
-        <input
-          type="text"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="One sentence describing what the product does"
-          className={inputClass}
-          style={focusStyle}
-        />
+        <Label required>Short description</Label>
+        <input type="text" value={shortDescription} onChange={(e) => setShortDescription(e.target.value)}
+          placeholder="One sentence describing what the product does" className={inputClass} style={focusStyle} />
         <FieldHint>Shown on the My Products card. Keep it under 120 characters.</FieldHint>
       </div>
       <div>
@@ -139,24 +182,13 @@ function formatBytes(bytes: number): string {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short", day: "numeric", year: "numeric",
-  });
+  return new Date(iso).toLocaleDateString("en-GB", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function KBItemRow({
-  item,
-  onDelete,
-}: {
-  item: KnowledgeBaseItem;
-  onDelete: () => void;
-}) {
-  const isUrl = item.type === "url";
+function KBItemRow({ item, onDelete }: { item: KBDraft; onDelete: () => void }) {
+  const isUrl = item.source_type === "url";
   return (
-    <div
-      className="flex items-center gap-3 px-4 py-3 rounded-lg border bg-white"
-      style={{ borderColor: "var(--pine-100)" }}
-    >
+    <div className="flex items-center gap-3 px-4 py-3 rounded-lg border bg-white" style={{ borderColor: "var(--pine-100)" }}>
       <span style={{ color: "var(--pine)" }} className="flex-shrink-0">
         {isUrl ? (
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -171,19 +203,14 @@ function KBItemRow({
         )}
       </span>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-space truncate">{item.name}</p>
+        <p className="text-sm font-medium text-space truncate">{item.display_name}</p>
         <p className="text-xs mt-0.5" style={{ color: "#9ca3af" }}>
           {isUrl
-            ? `URL · Added ${formatDate(item.addedAt)}`
-            : `${item.fileType?.split("/")[1]?.toUpperCase() ?? "File"}${item.fileSize ? ` · ${formatBytes(item.fileSize)}` : ""} · Added ${formatDate(item.addedAt)}`}
+            ? `URL · Added ${formatDate(item.created_at)}`
+            : `${item.file_type?.split("/")[1]?.toUpperCase() ?? "File"}${item.file_size_bytes ? ` · ${formatBytes(item.file_size_bytes)}` : ""} · Added ${formatDate(item.created_at)}`}
         </p>
       </div>
-      <button
-        onClick={onDelete}
-        className="flex-shrink-0 p-1.5 rounded-md transition-colors hover:bg-red-50 hover:text-red-500"
-        style={{ color: "#9ca3af" }}
-        title="Remove"
-      >
+      <button onClick={onDelete} className="flex-shrink-0 p-1.5 rounded-md transition-colors hover:bg-red-50 hover:text-red-500" style={{ color: "#9ca3af" }} title="Remove">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
         </svg>
@@ -193,12 +220,11 @@ function KBItemRow({
 }
 
 function KnowledgeBaseTab({
-  items,
-  onAdd,
-  onDelete,
+  items, onAddFile, onAddUrl, onDelete,
 }: {
-  items: KnowledgeBaseItem[];
-  onAdd: (item: KnowledgeBaseItem) => void;
+  items: KBDraft[];
+  onAddFile: (file: File) => void;
+  onAddUrl: (url: string, name: string) => void;
   onDelete: (id: string) => void;
 }) {
   const [dragging, setDragging] = useState(false);
@@ -208,19 +234,9 @@ function KnowledgeBaseTab({
 
   const handleFiles = useCallback(
     (files: File[]) => {
-      const docs = files.filter((f) => ACCEPTED_DOC_TYPES.includes(f.type));
-      for (const f of docs) {
-        onAdd({
-          id: crypto.randomUUID(),
-          type: "document",
-          name: f.name,
-          fileType: f.type,
-          fileSize: f.size,
-          addedAt: new Date().toISOString(),
-        });
-      }
+      files.filter((f) => ACCEPTED_DOC_TYPES.includes(f.type)).forEach((f) => onAddFile(f));
     },
-    [onAdd]
+    [onAddFile]
   );
 
   function handleDrop(e: React.DragEvent) {
@@ -233,19 +249,14 @@ function KnowledgeBaseTab({
     const url = urlInput.trim();
     if (!url) return;
     const name = urlName.trim() || url.replace(/^https?:\/\//, "").split("/")[0];
-    onAdd({
-      id: crypto.randomUUID(),
-      type: "url",
-      name,
-      url,
-      addedAt: new Date().toISOString(),
-    });
+    onAddUrl(url, name);
     setUrlInput("");
     setUrlName("");
   }
 
-  const docs = items.filter((i) => i.type === "document");
-  const urls = items.filter((i) => i.type === "url");
+  const visible = items.filter((i) => !i.isDeleted);
+  const docs = visible.filter((i) => i.source_type === "upload");
+  const urls = visible.filter((i) => i.source_type === "url");
 
   return (
     <div className="space-y-8">
@@ -255,42 +266,28 @@ function KnowledgeBaseTab({
         <FieldHint>PDFs, Word docs, and text files — help docs, SOPs, user guides, etc.</FieldHint>
         <div
           className="mt-3 flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-8 cursor-pointer transition-all"
-          style={
-            dragging
-              ? { borderColor: "var(--pine)", background: "var(--pine-50)" }
-              : { borderColor: "var(--pine-100)", background: "var(--offwhite)" }
-          }
+          style={dragging ? { borderColor: "var(--pine)", background: "var(--pine-50)" } : { borderColor: "var(--pine-100)", background: "var(--offwhite)" }}
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
           onDrop={handleDrop}
           onClick={() => fileRef.current?.click()}
         >
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".pdf,.doc,.docx,.txt"
-            multiple
-            className="sr-only"
-            onChange={(e) => { handleFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }}
-          />
+          <input ref={fileRef} type="file" accept=".pdf,.doc,.docx,.txt" multiple className="sr-only"
+            onChange={(e) => { handleFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
           <span style={{ color: dragging ? "var(--pine)" : "#9ca3af" }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="16 16 12 12 8 16" />
-              <line x1="12" y1="12" x2="12" y2="21" />
+              <polyline points="16 16 12 12 8 16" /><line x1="12" y1="12" x2="12" y2="21" />
               <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
             </svg>
           </span>
           <p className="text-sm font-medium" style={{ color: dragging ? "var(--pine)" : "var(--space)" }}>
             {dragging ? "Drop files here" : "Drag & drop or click to upload"}
           </p>
-          <p className="text-xs" style={{ color: "#9ca3af" }}>PDF, Word, TXT</p>
+          <p className="text-xs" style={{ color: "#9ca3af" }}>PDF, Word, TXT · max 10 MB each</p>
         </div>
-
         {docs.length > 0 && (
           <div className="mt-3 space-y-2">
-            {docs.map((item) => (
-              <KBItemRow key={item.id} item={item} onDelete={() => onDelete(item.id)} />
-            ))}
+            {docs.map((item) => <KBItemRow key={item.id} item={item} onDelete={() => onDelete(item.id)} />)}
           </div>
         )}
       </div>
@@ -298,62 +295,37 @@ function KnowledgeBaseTab({
       {/* URL input */}
       <div>
         <Label>Website URLs</Label>
-        <FieldHint>Link to product documentation, help centers, or any web-based reference material.</FieldHint>
-        <div
-          className="mt-3 rounded-xl border p-4 space-y-3"
-          style={{ borderColor: "var(--pine-100)", background: "var(--offwhite)" }}
-        >
+        <FieldHint>Link to product documentation, help centres, or any web-based reference material.</FieldHint>
+        <div className="mt-3 rounded-xl border p-4 space-y-3" style={{ borderColor: "var(--pine-100)", background: "var(--offwhite)" }}>
           <div>
             <p className="text-xs font-medium text-space mb-1.5">URL</p>
-            <input
-              type="url"
-              value={urlInput}
-              onChange={(e) => setUrlInput(e.target.value)}
+            <input type="url" value={urlInput} onChange={(e) => setUrlInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleAddUrl()}
-              placeholder="https://docs.yourproduct.com/overview"
-              className={inputClass}
-              style={focusStyle}
-            />
+              placeholder="https://docs.yourproduct.com/overview" className={inputClass} style={focusStyle} />
           </div>
           <div>
             <p className="text-xs font-medium text-space mb-1.5">Display name <span className="font-normal" style={{ color: "#9ca3af" }}>(optional)</span></p>
-            <input
-              type="text"
-              value={urlName}
-              onChange={(e) => setUrlName(e.target.value)}
+            <input type="text" value={urlName} onChange={(e) => setUrlName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleAddUrl()}
-              placeholder="e.g. Product Help Center"
-              className={inputClass}
-              style={focusStyle}
-            />
+              placeholder="e.g. Product Help Centre" className={inputClass} style={focusStyle} />
           </div>
-          <button
-            onClick={handleAddUrl}
-            disabled={!urlInput.trim()}
+          <button onClick={handleAddUrl} disabled={!urlInput.trim()}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-offwhite transition-colors"
-            style={
-              urlInput.trim()
-                ? { background: "var(--pine)" }
-                : { background: "#e5e7eb", color: "#9ca3af", cursor: "not-allowed" }
-            }
-          >
+            style={urlInput.trim() ? { background: "var(--pine)" } : { background: "#e5e7eb", color: "#9ca3af", cursor: "not-allowed" }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
             </svg>
             Add URL
           </button>
         </div>
-
         {urls.length > 0 && (
           <div className="mt-3 space-y-2">
-            {urls.map((item) => (
-              <KBItemRow key={item.id} item={item} onDelete={() => onDelete(item.id)} />
-            ))}
+            {urls.map((item) => <KBItemRow key={item.id} item={item} onDelete={() => onDelete(item.id)} />)}
           </div>
         )}
       </div>
 
-      {items.length === 0 && (
+      {visible.length === 0 && (
         <p className="text-sm text-center py-4" style={{ color: "#9ca3af" }}>
           No knowledge base items yet — add documents or URLs above
         </p>
@@ -364,59 +336,36 @@ function KnowledgeBaseTab({
 
 // ─── Personas Tab ─────────────────────────────────────────────────────────────
 
-const EMPTY_PERSONA: Omit<Persona, "id"> = {
-  name: "",
-  roleDescription: "",
-  techSavviness: "Medium",
-  behaviorsAndNeeds: "",
-  designImplications: "",
-  relevantFeatures: "",
+const TECH_OPTIONS: TechLevel[] = ["low", "medium", "high"];
+const TECH_LABELS: Record<TechLevel, string> = { low: "Low", medium: "Medium", high: "High" };
+const TECH_COLORS: Record<TechLevel, { bg: string; text: string; border: string }> = {
+  low:    { bg: "#fff7ed", text: "#c2410c", border: "#fed7aa" },
+  medium: { bg: "#fffbeb", text: "#b45309", border: "#fde68a" },
+  high:   { bg: "var(--pine-50)", text: "var(--pine)", border: "var(--pine-100)" },
 };
 
-const TECH_OPTIONS: TechSavviness[] = ["Low", "Medium", "High"];
-
-const TECH_COLORS: Record<TechSavviness, { bg: string; text: string; border: string }> = {
-  Low:    { bg: "#fff7ed", text: "#c2410c", border: "#fed7aa" },
-  Medium: { bg: "#fffbeb", text: "#b45309", border: "#fde68a" },
-  High:   { bg: "var(--pine-50)", text: "var(--pine)", border: "var(--pine-100)" },
-};
-
-function TechBadge({ level }: { level: TechSavviness }) {
+function TechBadge({ level }: { level: TechLevel }) {
   const c = TECH_COLORS[level];
   return (
-    <span
-      className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
-      style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}` }}
-    >
-      {level} tech
+    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+      style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}` }}>
+      {TECH_LABELS[level]} tech
     </span>
   );
 }
 
-function TechSelector({
-  value,
-  onChange,
-}: {
-  value: TechSavviness;
-  onChange: (v: TechSavviness) => void;
-}) {
+function TechSelector({ value, onChange }: { value: TechLevel; onChange: (v: TechLevel) => void }) {
   return (
     <div className="flex gap-2">
       {TECH_OPTIONS.map((opt) => {
         const active = opt === value;
         return (
-          <button
-            key={opt}
-            type="button"
-            onClick={() => onChange(opt)}
+          <button key={opt} type="button" onClick={() => onChange(opt)}
             className="px-4 py-1.5 rounded-lg text-sm font-semibold border transition-all"
-            style={
-              active
-                ? { background: "var(--pine)", color: "var(--offwhite)", borderColor: "var(--pine)" }
-                : { background: "white", color: "#6b7280", borderColor: "#e5e7eb" }
-            }
-          >
-            {opt}
+            style={active
+              ? { background: "var(--pine)", color: "var(--offwhite)", borderColor: "var(--pine)" }
+              : { background: "white", color: "#6b7280", borderColor: "#e5e7eb" }}>
+            {TECH_LABELS[opt]}
           </button>
         );
       })}
@@ -424,105 +373,69 @@ function TechSelector({
   );
 }
 
-function PersonaForm({
+const EMPTY_PERSONA_DRAFT: Omit<PersonaDraft, "id" | "isNew" | "isDeleted" | "isDirty"> = {
+  name: "", role_description: "", tech_savviness: "medium",
+  behaviours: "", design_implications: "", relevant_features: "",
+};
+
+function PersonaFormPanel({
   initial,
   onSave,
   onCancel,
   saveLabel = "Save Persona",
 }: {
-  initial: Omit<Persona, "id">;
-  onSave: (data: Omit<Persona, "id">) => void;
+  initial: Omit<PersonaDraft, "id" | "isNew" | "isDeleted" | "isDirty">;
+  onSave: (data: Omit<PersonaDraft, "id" | "isNew" | "isDeleted" | "isDirty">) => void;
   onCancel: () => void;
   saveLabel?: string;
 }) {
-  const [draft, setDraft] = useState<Omit<Persona, "id">>(initial);
-  const set = (key: keyof Omit<Persona, "id">) => (v: string | TechSavviness) =>
+  const [draft, setDraft] = useState(initial);
+  const set = (key: keyof typeof draft) => (v: string | TechLevel) =>
     setDraft((p) => ({ ...p, [key]: v }));
 
   return (
-    <div
-      className="rounded-xl border p-5 space-y-4"
-      style={{ borderColor: "var(--pine-100)", background: "var(--pine-50)" }}
-    >
+    <div className="rounded-xl border p-5 space-y-4" style={{ borderColor: "var(--pine-100)", background: "var(--pine-50)" }}>
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label required>Persona name</Label>
-          <input
-            type="text"
-            value={draft.name}
-            onChange={(e) => set("name")(e.target.value)}
-            placeholder="e.g. UK Ecologist"
-            className={inputClass}
-            style={focusStyle}
-          />
+          <input type="text" value={draft.name} onChange={(e) => set("name")(e.target.value)}
+            placeholder="e.g. UK Ecologist" className={inputClass} style={focusStyle} />
         </div>
         <div>
           <Label>Role description</Label>
-          <input
-            type="text"
-            value={draft.roleDescription}
-            onChange={(e) => set("roleDescription")(e.target.value)}
-            placeholder="e.g. Senior field researcher, manages survey data"
-            className={inputClass}
-            style={focusStyle}
-          />
+          <input type="text" value={draft.role_description} onChange={(e) => set("role_description")(e.target.value)}
+            placeholder="e.g. Senior field researcher, manages survey data" className={inputClass} style={focusStyle} />
         </div>
       </div>
       <div>
         <Label>Tech-savviness</Label>
-        <TechSelector value={draft.techSavviness} onChange={(v) => set("techSavviness")(v)} />
+        <TechSelector value={draft.tech_savviness} onChange={(v) => set("tech_savviness")(v)} />
       </div>
       <div>
-        <Label>Key behaviors and needs</Label>
-        <textarea
-          value={draft.behaviorsAndNeeds}
-          onChange={(e) => set("behaviorsAndNeeds")(e.target.value)}
-          rows={3}
+        <Label>Key behaviours and needs</Label>
+        <textarea value={draft.behaviours} onChange={(e) => set("behaviours")(e.target.value)} rows={3}
           placeholder="How does this persona work? What do they need from the product? What frustrates them?"
-          className={`${inputClass} resize-none`}
-          style={focusStyle}
-        />
+          className={`${inputClass} resize-none`} style={focusStyle} />
       </div>
       <div>
         <Label>Design implications</Label>
-        <textarea
-          value={draft.designImplications}
-          onChange={(e) => set("designImplications")(e.target.value)}
-          rows={3}
+        <textarea value={draft.design_implications} onChange={(e) => set("design_implications")(e.target.value)} rows={3}
           placeholder="How should this persona's characteristics influence UI and UX decisions?"
-          className={`${inputClass} resize-none`}
-          style={focusStyle}
-        />
+          className={`${inputClass} resize-none`} style={focusStyle} />
       </div>
       <div>
         <Label>Relevant features</Label>
-        <textarea
-          value={draft.relevantFeatures}
-          onChange={(e) => set("relevantFeatures")(e.target.value)}
-          rows={2}
+        <textarea value={draft.relevant_features} onChange={(e) => set("relevant_features")(e.target.value)} rows={2}
           placeholder="Which product features does this persona primarily use?"
-          className={`${inputClass} resize-none`}
-          style={focusStyle}
-        />
+          className={`${inputClass} resize-none`} style={focusStyle} />
       </div>
       <div className="flex items-center gap-2 pt-1">
-        <button
-          onClick={() => draft.name.trim() && onSave(draft)}
-          disabled={!draft.name.trim()}
+        <button onClick={() => draft.name.trim() && onSave(draft)} disabled={!draft.name.trim()}
           className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-offwhite transition-colors"
-          style={
-            draft.name.trim()
-              ? { background: "var(--pine)" }
-              : { background: "#e5e7eb", color: "#9ca3af", cursor: "not-allowed" }
-          }
-        >
+          style={draft.name.trim() ? { background: "var(--pine)" } : { background: "#e5e7eb", color: "#9ca3af", cursor: "not-allowed" }}>
           {saveLabel}
         </button>
-        <button
-          onClick={onCancel}
-          className="px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-white/60"
-          style={{ color: "#6b7280" }}
-        >
+        <button onClick={onCancel} className="px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-white/60" style={{ color: "#6b7280" }}>
           Cancel
         </button>
       </div>
@@ -531,178 +444,118 @@ function PersonaForm({
 }
 
 function PersonaCard({
-  persona,
-  isEditing,
-  onEdit,
-  onDelete,
-  onSave,
-  onCancelEdit,
+  persona, isEditing, onEdit, onDelete, onSave, onCancelEdit,
 }: {
-  persona: Persona;
+  persona: PersonaDraft;
   isEditing: boolean;
   onEdit: () => void;
   onDelete: () => void;
-  onSave: (data: Omit<Persona, "id">) => void;
+  onSave: (data: Omit<PersonaDraft, "id" | "isNew" | "isDeleted" | "isDirty">) => void;
   onCancelEdit: () => void;
 }) {
   if (isEditing) {
     return (
-      <PersonaForm
-        initial={{
-          name: persona.name,
-          roleDescription: persona.roleDescription,
-          techSavviness: persona.techSavviness,
-          behaviorsAndNeeds: persona.behaviorsAndNeeds,
-          designImplications: persona.designImplications,
-          relevantFeatures: persona.relevantFeatures,
-        }}
-        onSave={onSave}
-        onCancel={onCancelEdit}
-        saveLabel="Update Persona"
-      />
+      <PersonaFormPanel
+        initial={{ name: persona.name, role_description: persona.role_description, tech_savviness: persona.tech_savviness,
+          behaviours: persona.behaviours, design_implications: persona.design_implications, relevant_features: persona.relevant_features }}
+        onSave={onSave} onCancel={onCancelEdit} saveLabel="Update Persona" />
     );
   }
-
   return (
-    <div
-      className="group rounded-xl border bg-white p-5 transition-all hover:shadow-sm"
-      style={{ borderColor: "var(--pine-100)" }}
-    >
+    <div className="group rounded-xl border bg-white p-5 transition-all hover:shadow-sm" style={{ borderColor: "var(--pine-100)" }}>
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="flex items-center gap-2.5 flex-wrap">
           <span className="font-semibold text-space text-[15px]">{persona.name}</span>
-          <TechBadge level={persona.techSavviness} />
+          <TechBadge level={persona.tech_savviness} />
         </div>
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-          <button
-            onClick={onEdit}
-            className="p-1.5 rounded-md transition-colors hover:bg-pine-50"
-            style={{ color: "#6b7280" }}
-            title="Edit persona"
-          >
+          <button onClick={onEdit} className="p-1.5 rounded-md transition-colors hover:bg-pine-50" style={{ color: "#6b7280" }} title="Edit">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
               <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
             </svg>
           </button>
-          <button
-            onClick={onDelete}
-            className="p-1.5 rounded-md transition-colors hover:bg-red-50 hover:text-red-500"
-            style={{ color: "#6b7280" }}
-            title="Delete persona"
-          >
+          <button onClick={onDelete} className="p-1.5 rounded-md transition-colors hover:bg-red-50 hover:text-red-500" style={{ color: "#6b7280" }} title="Delete">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="3 6 5 6 21 6" />
               <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-              <path d="M10 11v6M14 11v6" />
-              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+              <path d="M10 11v6M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
             </svg>
           </button>
         </div>
       </div>
-
-      {persona.roleDescription && (
-        <p className="text-sm mb-3" style={{ color: "#4a5568" }}>{persona.roleDescription}</p>
+      {persona.role_description && (
+        <p className="text-sm mb-3" style={{ color: "#4a5568" }}>{persona.role_description}</p>
       )}
-
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[
-          { label: "Behaviors & needs", value: persona.behaviorsAndNeeds },
-          { label: "Design implications", value: persona.designImplications },
-          { label: "Relevant features", value: persona.relevantFeatures },
-        ]
-          .filter((s) => s.value)
-          .map((s) => (
-            <div key={s.label}>
-              <p className="text-[11px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--pine)" }}>
-                {s.label}
-              </p>
-              <p className="text-xs leading-relaxed line-clamp-3" style={{ color: "#4a5568" }}>
-                {s.value}
-              </p>
-            </div>
-          ))}
+          { label: "Behaviours & needs", value: persona.behaviours },
+          { label: "Design implications", value: persona.design_implications },
+          { label: "Relevant features", value: persona.relevant_features },
+        ].filter((s) => s.value).map((s) => (
+          <div key={s.label}>
+            <p className="text-[11px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--pine)" }}>{s.label}</p>
+            <p className="text-xs leading-relaxed line-clamp-3" style={{ color: "#4a5568" }}>{s.value}</p>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
 function PersonasTab({
-  personas,
-  onAdd,
-  onUpdate,
-  onDelete,
+  personas, onAdd, onUpdate, onDelete,
 }: {
-  personas: Persona[];
-  onAdd: (data: Omit<Persona, "id">) => void;
-  onUpdate: (id: string, data: Omit<Persona, "id">) => void;
+  personas: PersonaDraft[];
+  onAdd: (data: Omit<PersonaDraft, "id" | "isNew" | "isDeleted" | "isDirty">) => void;
+  onUpdate: (id: string, data: Omit<PersonaDraft, "id" | "isNew" | "isDeleted" | "isDirty">) => void;
   onDelete: (id: string) => void;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
-
-  function handleAdd(data: Omit<Persona, "id">) {
-    onAdd(data);
-    setShowAddForm(false);
-  }
-
-  function handleUpdate(id: string, data: Omit<Persona, "id">) {
-    onUpdate(id, data);
-    setEditingId(null);
-  }
+  const visible = personas.filter((p) => !p.isDeleted);
 
   return (
     <div className="space-y-4">
-      {personas.length === 0 && !showAddForm && (
-        <div
-          className="text-center py-10 rounded-xl border-2 border-dashed"
-          style={{ borderColor: "var(--pine-100)" }}
-        >
-          <div
-            className="w-10 h-10 rounded-full flex items-center justify-center mx-auto mb-3"
-            style={{ background: "var(--pine-50)" }}
-          >
+      {visible.length === 0 && !showAddForm && (
+        <div className="text-center py-10 rounded-xl border-2 border-dashed" style={{ borderColor: "var(--pine-100)" }}>
+          <div className="w-10 h-10 rounded-full flex items-center justify-center mx-auto mb-3" style={{ background: "var(--pine-50)" }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--pine)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
               <circle cx="9" cy="7" r="4" />
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
             </svg>
           </div>
           <p className="text-sm font-medium text-space mb-1">No personas yet</p>
-          <p className="text-xs mb-4" style={{ color: "#9ca3af" }}>
-            Define the types of users who interact with this product
-          </p>
+          <p className="text-xs mb-4" style={{ color: "#9ca3af" }}>Define the types of users who interact with this product</p>
         </div>
       )}
 
-      {personas.map((persona) => (
+      {visible.map((persona) => (
         <PersonaCard
           key={persona.id}
           persona={persona}
           isEditing={editingId === persona.id}
           onEdit={() => { setShowAddForm(false); setEditingId(persona.id); }}
           onDelete={() => onDelete(persona.id)}
-          onSave={(data) => handleUpdate(persona.id, data)}
+          onSave={(data) => { onUpdate(persona.id, data); setEditingId(null); }}
           onCancelEdit={() => setEditingId(null)}
         />
       ))}
 
       {showAddForm && (
-        <PersonaForm
-          initial={EMPTY_PERSONA}
-          onSave={handleAdd}
+        <PersonaFormPanel
+          initial={EMPTY_PERSONA_DRAFT}
+          onSave={(data) => { onAdd(data); setShowAddForm(false); }}
           onCancel={() => setShowAddForm(false)}
           saveLabel="Add Persona"
         />
       )}
 
       {!showAddForm && (
-        <button
-          onClick={() => { setEditingId(null); setShowAddForm(true); }}
+        <button onClick={() => { setEditingId(null); setShowAddForm(true); }}
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold border-2 border-dashed transition-colors hover:bg-pine-50"
-          style={{ borderColor: "var(--pine-100)", color: "var(--pine)" }}
-        >
+          style={{ borderColor: "var(--pine-100)", color: "var(--pine)" }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
           </svg>
@@ -713,169 +566,257 @@ function PersonasTab({
   );
 }
 
-// ─── Main ProductForm ─────────────────────────────────────────────────────────
+// ─── Main ProductForm ──────────────────────────────────────────────────────────
 
 interface ProductFormProps {
-  product?: Product;
+  product?: DBProductWithRelations;
 }
 
 export default function ProductForm({ product }: ProductFormProps) {
   const router = useRouter();
-  const { addProduct, updateProduct } = useProducts();
+  const isEdit = !!product;
+
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Draft state
+  // Overview state
   const [name, setName] = useState(product?.name ?? "");
-  const [description, setDescription] = useState(product?.description ?? "");
+  const [shortDescription, setShortDescription] = useState(product?.short_description ?? "");
   const [context, setContext] = useState(product?.context ?? "");
-  const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeBaseItem[]>(
-    product?.knowledgeBase ?? []
+
+  // KB drafts
+  const [kbItems, setKbItems] = useState<KBDraft[]>(
+    product?.knowledge_base_items.map(dbKbToKBDraft) ?? []
   );
-  const [personas, setPersonas] = useState<Persona[]>(product?.personas ?? []);
 
-  function addKBItem(item: KnowledgeBaseItem) {
-    setKnowledgeBase((prev) => [...prev, item]);
+  // Persona drafts
+  const [personas, setPersonas] = useState<PersonaDraft[]>(
+    product?.personas.map(dbPersonaToDraft) ?? []
+  );
+
+  function addKBFile(file: File) {
+    setKbItems((prev) => [...prev, {
+      id: crypto.randomUUID(),
+      source_type: "upload",
+      display_name: file.name,
+      file_size_bytes: file.size,
+      file_type: file.type,
+      created_at: new Date().toISOString(),
+      file,
+      isNew: true,
+      isDeleted: false,
+    }]);
   }
+
+  function addKBUrl(url: string, displayName: string) {
+    setKbItems((prev) => [...prev, {
+      id: crypto.randomUUID(),
+      source_type: "url",
+      display_name: displayName,
+      url,
+      created_at: new Date().toISOString(),
+      isNew: true,
+      isDeleted: false,
+    }]);
+  }
+
   function deleteKBItem(id: string) {
-    setKnowledgeBase((prev) => prev.filter((i) => i.id !== id));
+    setKbItems((prev) => prev.map((i) => i.id === id ? { ...i, isDeleted: true } : i));
   }
-  function addPersona(data: Omit<Persona, "id">) {
-    setPersonas((prev) => [...prev, { ...data, id: crypto.randomUUID() }]);
+
+  function addPersona(data: Omit<PersonaDraft, "id" | "isNew" | "isDeleted" | "isDirty">) {
+    setPersonas((prev) => [...prev, { ...data, id: crypto.randomUUID(), isNew: true, isDeleted: false, isDirty: false }]);
   }
-  function updatePersona(id: string, data: Omit<Persona, "id">) {
-    setPersonas((prev) => prev.map((p) => (p.id === id ? { ...data, id } : p)));
+
+  function updatePersona(id: string, data: Omit<PersonaDraft, "id" | "isNew" | "isDeleted" | "isDirty">) {
+    setPersonas((prev) => prev.map((p) =>
+      p.id === id ? { ...p, ...data, isDirty: !p.isNew } : p
+    ));
   }
+
   function deletePersona(id: string) {
-    setPersonas((prev) => prev.filter((p) => p.id !== id));
+    setPersonas((prev) => prev.map((p) => p.id === id ? { ...p, isDeleted: true } : p));
   }
 
-  function handleSave() {
+  async function handleSave() {
     if (!name.trim()) { setActiveTab("overview"); return; }
+    if (!shortDescription.trim()) { setActiveTab("overview"); return; }
+
+    setError(null);
     setSaving(true);
-    const data = { name: name.trim(), description, context, knowledgeBase, personas };
-    if (product) {
-      updateProduct(product.id, data);
-    } else {
-      addProduct(data);
+
+    try {
+      let productId: string;
+
+      // ── 1. Create or update product overview ─────────────────────────────────
+      if (isEdit) {
+        const res = await fetch(`/api/products/${product.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: name.trim(), short_description: shortDescription.trim(), context: context.trim() }),
+        });
+        if (!res.ok) throw new Error("Failed to update product.");
+        productId = product.id;
+      } else {
+        const res = await fetch("/api/products", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: name.trim(), short_description: shortDescription.trim(), context: context.trim() }),
+        });
+        if (!res.ok) throw new Error("Failed to create product.");
+        const { data } = await res.json();
+        productId = data.id;
+      }
+
+      // ── 2. KB operations ─────────────────────────────────────────────────────
+      const kbOps: Promise<unknown>[] = [];
+
+      // Delete removed existing items
+      kbItems.filter((i) => !i.isNew && i.isDeleted).forEach((i) => {
+        kbOps.push(fetch(`/api/products/${productId}/knowledge-base/${i.id}`, { method: "DELETE" }));
+      });
+
+      // Upload new files
+      kbItems.filter((i) => i.isNew && !i.isDeleted && i.source_type === "upload" && i.file).forEach((i) => {
+        const form = new FormData();
+        form.append("file", i.file!);
+        kbOps.push(fetch(`/api/products/${productId}/knowledge-base`, { method: "POST", body: form }));
+      });
+
+      // Add new URLs
+      kbItems.filter((i) => i.isNew && !i.isDeleted && i.source_type === "url").forEach((i) => {
+        kbOps.push(fetch(`/api/products/${productId}/knowledge-base`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: i.url, name: i.display_name }),
+        }));
+      });
+
+      // ── 3. Persona operations ────────────────────────────────────────────────
+      const personaOps: Promise<unknown>[] = [];
+
+      personas.filter((p) => !p.isNew && p.isDeleted).forEach((p) => {
+        personaOps.push(fetch(`/api/products/${productId}/personas/${p.id}`, { method: "DELETE" }));
+      });
+
+      personas.filter((p) => p.isNew && !p.isDeleted).forEach((p) => {
+        personaOps.push(fetch(`/api/products/${productId}/personas`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: p.name, role_description: p.role_description, tech_savviness: p.tech_savviness,
+            behaviours: p.behaviours || undefined, design_implications: p.design_implications || undefined,
+            relevant_features: p.relevant_features || undefined,
+          }),
+        }));
+      });
+
+      personas.filter((p) => !p.isNew && !p.isDeleted && p.isDirty).forEach((p) => {
+        personaOps.push(fetch(`/api/products/${productId}/personas/${p.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: p.name, role_description: p.role_description, tech_savviness: p.tech_savviness,
+            behaviours: p.behaviours || undefined, design_implications: p.design_implications || undefined,
+            relevant_features: p.relevant_features || undefined,
+          }),
+        }));
+      });
+
+      await Promise.all([...kbOps, ...personaOps]);
+
+      router.push("/products");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      setSaving(false);
     }
-    router.push("/products");
   }
 
-  const isNew = !product;
-  const pageTitle = isNew ? "New Product" : product.name;
+  const pageTitle = isEdit ? product.name : "New Product";
 
   return (
     <div className="min-h-screen px-10 py-10">
       {/* Page header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <Link
-            href="/products"
-            className="inline-flex items-center gap-1.5 text-xs font-medium mb-3 transition-colors hover:opacity-80"
-            style={{ color: "var(--pine)" }}
-          >
+          <Link href="/products" className="inline-flex items-center gap-1.5 text-xs font-medium mb-3 transition-colors hover:opacity-80" style={{ color: "var(--pine)" }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
             My Products
           </Link>
           <h1 className="text-2xl font-bold tracking-tight text-space">{pageTitle}</h1>
-          {!isNew && (
+          {isEdit && (
             <p className="text-sm mt-1" style={{ color: "#9ca3af" }}>
-              Last updated {new Date(product.updatedAt).toLocaleDateString("en-US", {
-                month: "long", day: "numeric", year: "numeric",
-              })}
+              Last updated {new Date(product.updated_at).toLocaleDateString("en-GB", { month: "long", day: "numeric", year: "numeric" })}
             </p>
           )}
         </div>
-        <button
-          onClick={handleSave}
-          disabled={!name.trim() || saving}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-offwhite transition-colors"
-          style={
-            name.trim() && !saving
-              ? { background: "var(--pine)" }
-              : { background: "#e5e7eb", color: "#9ca3af", cursor: "not-allowed" }
-          }
-        >
-          {saving ? (
-            <>
-              <span className="w-3.5 h-3.5 border-2 border-offwhite/40 border-t-offwhite rounded-full animate-spin" />
-              Saving…
-            </>
-          ) : (
-            <>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                <polyline points="17 21 17 13 7 13 7 21" />
-                <polyline points="7 3 7 8 15 8" />
-              </svg>
-              Save Product
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-3">
+          {error && <p className="text-xs text-red-500 max-w-xs text-right">{error}</p>}
+          <button
+            onClick={handleSave}
+            disabled={!name.trim() || !shortDescription.trim() || saving}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-offwhite transition-colors"
+            style={
+              !name.trim() || !shortDescription.trim() || saving
+                ? { background: "#9ca3af", cursor: "not-allowed" }
+                : { background: "var(--pine)" }
+            }
+          >
+            {saving ? (
+              <>
+                <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12a9 9 0 11-6.219-8.56" />
+                </svg>
+                Saving…
+              </>
+            ) : (
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                  <polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" />
+                </svg>
+                Save Product
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
-      {/* Tab bar */}
-      <div
-        className="flex gap-0 mb-8 border-b"
-        style={{ borderColor: "var(--pine-100)" }}
-      >
-        {TABS.map((tab) => {
-          const active = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className="flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors relative"
-              style={
-                active
-                  ? { color: "var(--pine)" }
-                  : { color: "#6b7280" }
-              }
-            >
-              {tab.icon}
-              {tab.label}
-              {tab.id === "knowledge-base" && knowledgeBase.length > 0 && (
-                <span
-                  className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
-                  style={{ background: "var(--pine-50)", color: "var(--pine)" }}
-                >
-                  {knowledgeBase.length}
-                </span>
-              )}
-              {tab.id === "personas" && personas.length > 0 && (
-                <span
-                  className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
-                  style={{ background: "var(--pine-50)", color: "var(--pine)" }}
-                >
-                  {personas.length}
-                </span>
-              )}
-              {active && (
-                <span
-                  className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full"
-                  style={{ background: "var(--pine)" }}
-                />
-              )}
-            </button>
-          );
-        })}
+      {/* Tabs */}
+      <div className="flex gap-1 mb-8 border-b" style={{ borderColor: "var(--pine-100)" }}>
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-all -mb-px border-b-2"
+            style={
+              activeTab === tab.id
+                ? { borderColor: "var(--pine)", color: "var(--pine)" }
+                : { borderColor: "transparent", color: "#6b7280" }
+            }
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* Tab content */}
       <div className="max-w-2xl">
         {activeTab === "overview" && (
           <OverviewTab
-            name={name} description={description} context={context}
-            setName={setName} setDescription={setDescription} setContext={setContext}
+            name={name} shortDescription={shortDescription} context={context}
+            setName={setName} setShortDescription={setShortDescription} setContext={setContext}
           />
         )}
         {activeTab === "knowledge-base" && (
           <KnowledgeBaseTab
-            items={knowledgeBase}
-            onAdd={addKBItem}
+            items={kbItems}
+            onAddFile={addKBFile}
+            onAddUrl={addKBUrl}
             onDelete={deleteKBItem}
           />
         )}
