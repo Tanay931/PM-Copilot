@@ -24,7 +24,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const blob = await markdownToDocxBlob(data.content_markdown, docTitle)
   const buffer = await blob.arrayBuffer()
 
-  const filename = `${data.title.replace(/\s+/g, '-').toLowerCase()}.docx`
+  const filename = `${data.title.replace(/[^\x00-\x7F]/g, '-').replace(/\s+/g, '-').replace(/-+/g, '-').toLowerCase()}.docx`
 
   return new NextResponse(buffer, {
     headers: {

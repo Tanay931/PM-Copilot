@@ -3,6 +3,8 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { ProductListItem, DBProductWithRelations, DBPersona } from "@/lib/types";
 import PRDResult from "@/components/PRDResult";
 
@@ -522,11 +524,27 @@ function GeneratingView({ streamedText }: { streamedText: string }) {
         <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--pine)", borderTopColor: "transparent" }} />
         <span className="text-sm font-medium text-space">Generating your PRD…</span>
       </div>
-      <div className="rounded-xl border px-6 py-5 min-h-48 max-h-[60vh] overflow-y-auto" style={{ background: "var(--pine-50)", borderColor: "var(--pine-100)" }}>
-        <pre className="text-[13px] leading-relaxed whitespace-pre-wrap font-mono" style={{ color: "var(--space)" }}>
+      <div className="rounded-xl border px-6 py-5 min-h-48 max-h-[60vh] overflow-y-auto" style={{ background: "white", borderColor: "var(--pine-100)" }}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            h1: ({ children }) => <h1 className="text-xl font-bold mt-6 mb-3" style={{ color: "var(--pine)" }}>{children}</h1>,
+            h2: ({ children }) => <h2 className="text-base font-bold mt-5 mb-2 pb-1.5" style={{ color: "var(--pine)", borderBottom: "1px solid var(--pine-100)" }}>{children}</h2>,
+            h3: ({ children }) => <h3 className="text-sm font-bold mt-4 mb-1.5" style={{ color: "var(--space)" }}>{children}</h3>,
+            p: ({ children }) => <p className="text-sm leading-relaxed mb-2" style={{ color: "var(--space)" }}>{children}</p>,
+            ul: ({ children }) => <ul className="text-sm mb-2 pl-5 space-y-0.5" style={{ color: "var(--space)", listStyleType: "disc" }}>{children}</ul>,
+            ol: ({ children }) => <ol className="text-sm mb-2 pl-5 space-y-0.5" style={{ color: "var(--space)", listStyleType: "decimal" }}>{children}</ol>,
+            li: ({ children }) => <li className="text-sm">{children}</li>,
+            table: ({ children }) => <div className="overflow-x-auto mb-3"><table className="w-full text-sm border-collapse">{children}</table></div>,
+            th: ({ children }) => <th className="px-3 py-1.5 text-left text-xs font-semibold text-offwhite" style={{ background: "var(--pine)" }}>{children}</th>,
+            td: ({ children }) => <td className="px-3 py-1.5 text-xs border-b" style={{ borderColor: "var(--pine-100)", color: "var(--space)" }}>{children}</td>,
+            strong: ({ children }) => <strong className="font-semibold" style={{ color: "var(--space)" }}>{children}</strong>,
+            code: ({ children }) => <code className="px-1 py-0.5 rounded text-xs font-mono" style={{ background: "var(--pine-50)", color: "var(--pine)" }}>{children}</code>,
+          }}
+        >
           {streamedText}
-          <span className="inline-block w-1.5 h-4 ml-0.5 animate-pulse align-middle" style={{ background: "var(--pine)" }} />
-        </pre>
+        </ReactMarkdown>
+        {streamedText && <span className="inline-block w-1.5 h-4 ml-0.5 animate-pulse align-middle" style={{ background: "var(--pine)" }} />}
       </div>
     </div>
   );

@@ -1,6 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { extractFileText } from "@/lib/extract-text";
-import { createClient } from "@/lib/supabase/server";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -50,19 +49,18 @@ List every meaningful error state the user or system might encounter. For each:
 - **Recovery path:** what they can do next
 
 ## Email / Notification Triggers
-List every automated email or in-app notification this feature should send. For each:
-- **Trigger event**
-- **Recipient(s)**
-- **Channel** (email, in-app, push, etc.)
-- **Content summary**
+List every automated email or in-app notification this feature should send as a markdown table. If none apply, state that explicitly.
 
-If none apply, state that explicitly.
+| Trigger event | Recipient(s) | Channel | Content summary |
+|---|---|---|---|
+| ... | ... | ... | ... |
 
 ## Analytics Events
-List every event that should be tracked. For each:
-- **Event name** (use snake_case)
-- **Trigger**
-- **Key properties** (as a bullet list)
+List every event that should be tracked as a markdown table.
+
+| Event name | Trigger | Key properties |
+|---|---|---|
+| snake_case_name | What causes this event | prop1, prop2, prop3 |
 
 ## Migration Considerations
 If this feature involves changes to existing data, APIs, or user flows, describe: backward compatibility requirements, rollout strategy (feature flags, gradual rollout), data backfill needs, and any sunset plan for deprecated functionality. If not applicable, state so.
@@ -84,14 +82,6 @@ export async function POST(request: Request) {
       JSON.stringify({ error: "ANTHROPIC_API_KEY is not configured." }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
-  }
-
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) {
-    return new Response(JSON.stringify({ error: "Unauthorised" }), {
-      status: 401, headers: { "Content-Type": "application/json" },
-    });
   }
 
   const formData = await request.formData();
@@ -228,6 +218,7 @@ export async function POST(request: Request) {
           }
         }
       } catch (err) {
+        console.error("Stream error:", err);
         controller.error(err);
       } finally {
         controller.close();
